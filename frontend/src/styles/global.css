@@ -33,3 +33,13 @@ body { margin: 0; background: #f6f8fb; color: #1f2937; }
 .link { border: none; background: none; color: var(--brand); cursor: pointer; padding: 0; }
 .page-foot { display: flex; justify-content: space-between; margin-top: 8px; font-size: 12px; color: var(--muted); }
 .error-text { color: #b42318; }
+.info-text { color: #1f6feb; }
+.muted { color: var(--muted); }
+.badge { display: inline-block; border-radius: 10px; padding: 1px 8px; font-size: 12px; line-height: 18px; }
+.badge-on { background: #e7f6ec; color: #0f7b3e; }
+.badge-off { background: #f2f4f7; color: #64748b; }
+.detail-panel { margin-top: 16px; background: #fff; border: 1px solid var(--border); border-radius: 8px; padding: 12px; }
+.detail-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.detail-head h3 { margin: 0; font-size: 15px; }
+.detail-panel h4 { margin: 12px 0 6px; font-size: 13px; color: var(--muted); }
+.detail-note { color: var(--muted); font-size: 12px; margin: 0 0 8px; }

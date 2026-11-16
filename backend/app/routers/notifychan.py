@@ -1,4 +1,8 @@
-"""通知渠道接口：维护渠道配置，覆盖提交配置评审、启用渠道、停用渠道等动作。"""
+"""通知渠道接口：维护渠道配置，覆盖提交配置评审、启用渠道、停用渠道等动作。
+
+另外提供SLA升级的消费入口：待发送清单、履约事件与发送动作都读取
+``app.services.slafulfillment`` 的同一份SLA履约事件数据记录。
+"""
 from __future__ import annotations
 
 from typing import Any
@@ -30,6 +34,38 @@ def list_entries(
     return PageResult(items=items, total=total, page=page, size=size)
 
 
+@router.get("/export")
+def export_entries() -> dict[str, Any]:
+    """导出通知渠道清单：返回当前过滤条件下的全量数据。"""
+    items, total = service.list_entries(page=1, size=10000)
+    return {"module": "notifychan", "total": total, "items": items}
+
+
+@router.get("/sla-escalations")
+def list_sla_escalations(
+    state: str | None = Query(default=None, description="待发送、已发送、已终止、渠道不可用"),
+) -> dict[str, Any]:
+    """SLA升级记录消费入口；与SLA监控详情指向同一条履约事件。"""
+    return service.list_escalations(state=state)
+
+
+@router.get("/sla-events")
+def list_sla_events(
+    current_only: bool = Query(default=True, description="只返回当前有效的履约事件"),
+) -> dict[str, Any]:
+    """SLA履约事件数据记录消费入口；默认只给当前有效事件。"""
+    return service.list_fulfillment_events(current_only=current_only)
+
+
+@router.post("/sla-escalations/{identifier}/send", response_model=ActionResult)
+def send_sla_escalation(identifier: str) -> ActionResult:
+    """发送一条SLA升级；规则关闭、版本过期或渠道失效时拒绝，不改发默认渠道。"""
+    escalation, message = service.send_escalation(identifier)
+    if escalation is None:
+        return ActionResult(ok=False, message=message)
+    return ActionResult(ok=True, message=message, entry=escalation)
+
+
 @router.get("/{entry_id}", response_model=dict)
 def get_entry(entry_id: int) -> dict:
     """读取单条渠道配置明细；不存在时给出可读的错误说明。"""
@@ -56,10 +92,3 @@ def run_action(entry_id: int, payload: EntryPayload) -> ActionResult:
     if entry is None:
         return ActionResult(ok=False, message=message)
     return ActionResult(ok=True, message=message, entry=entry)
-
-
-@router.get("/export")
-def export_entries() -> dict[str, Any]:
-    """导出通知渠道清单：返回当前过滤条件下的全量数据。"""
-    items, total = service.list_entries(page=1, size=10000)
-    return {"module": "notifychan", "total": total, "items": items}

@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.routers import ROUTERS
+from app.services import slafulfillment
 from app.store import store
 
 app = FastAPI(title="数据仓库ETL任务编排平台", version="1.0.0")
@@ -24,6 +25,15 @@ app.add_middleware(
 
 for module in ROUTERS:
     app.include_router(module.router)
+
+
+@app.on_event("startup")
+def bootstrap_sla_fulfillment() -> None:
+    """启动时按「规则 + 运行水位」重算一次，确保已生效规则立刻有履约事件。
+
+    只处理 ``已生效`` 规则，因此已关闭规则即使水位变化也不会恢复升级。
+    """
+    slafulfillment.recalc_all()
 
 
 @app.get("/api/health")

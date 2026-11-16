@@ -31,12 +31,18 @@
       <thead>
         <tr>
           <th v-for="column in columns" :key="column">{{ column }}</th>
+          <th>启用状态</th>
           <th>可执行动作</th>
         </tr>
       </thead>
       <tbody>
         <tr v-for="row in rows" :key="String(row.id)">
           <td v-for="column in columns" :key="column">{{ row[column] ?? '—' }}</td>
+          <td>
+            <span :class="['badge', row.status === '已启用' ? 'badge-on' : 'badge-off']">
+              {{ row.status === '已启用' ? '已启用' : '未启用' }}
+            </span>
+          </td>
           <td class="row-actions">
             <button
               v-for="action in actions"
@@ -50,36 +56,99 @@
           </td>
         </tr>
         <tr v-if="!rows.length">
-          <td :colspan="columns.length + 1" class="empty-state">暂无通知渠道数据，可先登记渠道配置</td>
+          <td :colspan="columns.length + 2" class="empty-state">暂无通知渠道数据，可先登记渠道配置</td>
         </tr>
       </tbody>
     </table>
 
+    <section class="detail-panel">
+      <header class="detail-head">
+        <h3>SLA升级待发送</h3>
+        <button class="btn ghost" type="button" @click="loadEscalations">刷新</button>
+      </header>
+      <p class="detail-note">
+        升级记录与SLA监控详情指向同一条SLA履约事件；规则关闭、版本过期或渠道未启用时不会发送。
+      </p>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>升级记录</th>
+            <th>规则编号</th>
+            <th>规则版本</th>
+            <th>履约事件</th>
+            <th>升级状态</th>
+            <th>通知渠道</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="item in escalations" :key="item.升级记录编号">
+            <td>{{ item.升级记录编号 }}</td>
+            <td>{{ item.规则编号 }}</td>
+            <td>{{ item.规则版本 }}</td>
+            <td>{{ item.履约事件编号 }}</td>
+            <td>{{ item.升级状态 }}</td>
+            <td>{{ item.渠道编号 ?? '—' }}</td>
+            <td>
+              <button
+                v-if="item.升级状态 === '待发送'"
+                class="link"
+                type="button"
+                @click="sendEscalation(item)"
+              >
+                发送升级
+              </button>
+              <span v-else class="muted">—</span>
+            </td>
+          </tr>
+          <tr v-if="!escalations.length">
+            <td colspan="7" class="empty-state">当前没有待处理的SLA升级</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
     <footer class="page-foot">
       <span>共 {{ total }} 条通知渠道记录</span>
       <span v-if="errorMessage" class="error-text">{{ errorMessage }}</span>
+      <span v-else-if="infoMessage" class="info-text">{{ infoMessage }}</span>
     </footer>
   </section>
 </template>
 
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 
 import { request } from '@/api/client'
 
 type Row = Record<string, string | number | null>
 
+type Escalation = {
+  升级记录编号: string
+  规则编号: string
+  规则版本: number
+  履约事件编号: string
+  升级状态: string
+  渠道编号: string | null
+}
+
 const ENDPOINT = '/api/notifychan'
 const columns = ["渠道编号", "渠道类型", "接收地址", "消息模板", "发送频率", "静默时段开始", "静默时段结束", "消息优先级"]
 const actions = ["提交配置评审", "启用渠道", "停用渠道"]
-const statuses = ["草稿", "配置评审中", "已启用", "已停用"]
-const stats = [{"label": "渠道配置总数", "value": 0}, {"label": "已启用渠道", "value": 0}, {"label": "评审中渠道", "value": 0}]
 
 const rows = ref<Row[]>([])
 const total = ref(0)
+const escalations = ref<Escalation[]>([])
 const errorMessage = ref('')
+const infoMessage = ref('')
 const filters = ref<Record<string, string>>({})
 const filterFields = columns.slice(0, 3)
+
+const stats = computed(() => [
+  { label: '渠道配置总数', value: total.value || rows.value.length },
+  { label: '已启用渠道', value: rows.value.filter((row) => row.status === '已启用').length },
+  { label: '待发送SLA升级', value: escalations.value.filter((item) => item.升级状态 === '待发送').length },
+])
 
 function resetFilters() {
   filters.value = {}
@@ -96,6 +165,7 @@ function openCreate() {
 
 async function runAction(action: string, row: Row) {
   errorMessage.value = ''
+  infoMessage.value = ''
   try {
     const response = await request(`${ENDPOINT}/${row.id}/actions`, {
       method: 'POST',
@@ -107,6 +177,38 @@ async function runAction(action: string, row: Row) {
     await reload()
   } catch (error) {
     errorMessage.value = error instanceof Error ? error.message : '通知渠道操作失败'
+  }
+}
+
+async function loadEscalations() {
+  try {
+    const response = await request(`${ENDPOINT}/sla-escalations`)
+    if (!response.ok) {
+      throw new Error('SLA升级记录读取失败')
+    }
+    const payload = await response.json()
+    escalations.value = payload.items ?? []
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : 'SLA升级记录读取失败'
+  }
+}
+
+async function sendEscalation(item: Escalation) {
+  errorMessage.value = ''
+  infoMessage.value = ''
+  try {
+    const response = await request(`${ENDPOINT}/sla-escalations/${item.升级记录编号}/send`, {
+      method: 'POST',
+    })
+    const payload = await response.json()
+    if (!response.ok || !payload.ok) {
+      throw new Error(typeof payload?.message === 'string' ? payload.message : 'SLA升级发送失败')
+    }
+    infoMessage.value = payload.message
+    await loadEscalations()
+  } catch (error) {
+    errorMessage.value = error instanceof Error ? error.message : 'SLA升级发送失败'
+    await loadEscalations()
   }
 }
 
@@ -126,5 +228,8 @@ async function reload() {
   }
 }
 
-onMounted(reload)
+onMounted(async () => {
+  await reload()
+  await loadEscalations()
+})
 </script>
